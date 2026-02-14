@@ -240,19 +240,23 @@
             socket.emit('join-room', roomName);
 
             // Handle Incoming Calls (Others in the room calling me)
-            myPeer.on('call', call => {
-                call.answer(stream); // Send them my audio
-                const audio = document.createElement('audio');
-                
-                call.on('stream', userAudioStream => {
-                    addAudioStream(audio, userAudioStream);
-                });
-                
-                // When they leave, remove audio
-                call.on('close', () => {
-                    audio.remove();
-                });
-            });
+            // Handle Incoming Calls (Others in the room calling me)
+    myPeer.on('call', call => {
+        call.answer(stream); // Send them my audio
+        const audio = document.createElement('audio');
+    
+        // TRACK THIS CALL so we can close it later!
+        peers[call.peer] = call; 
+    
+        call.on('stream', userAudioStream => {
+            addAudioStream(audio, userAudioStream);
+        });
+    
+        call.on('close', () => {
+            audio.remove();
+            delete peers[call.peer]; // Clean up
+        });
+    });
 
         }).catch(err => {
             alert("Microphone access denied. Check browser settings.");
@@ -260,36 +264,42 @@
         });
     }
 
-    function leaveRoom() {
+        function leaveRoom() {
         if (!currentRoom) return;
 
         console.log("Disconnecting from", currentRoom);
 
-        // 1. Stop Microphone
+        // 1. Stop My Microphone
         if(myStream) {
             myStream.getTracks().forEach(track => track.stop());
             myStream = null;
         }
 
-        // 2. Close all active peer calls
-        Object.values(peers).forEach(call => call.close());
-        peers = {};
+        // 2. Close ALL Peer Connections (Incoming and Outgoing)
+        Object.values(peers).forEach(call => {
+            call.close(); // Tell PeerJS to stop
+        });
+        peers = {}; // Wipe the list
 
-        // 3. Notify Server
-        socket.emit('leave-room'); // We need to add this handler to server if not there, or just join a null room
+        // 3. NUCLEAR OPTION: Remove all audio elements manually
+        // This guarantees no ghost audio remains
+        document.querySelectorAll('audio').forEach(el => el.remove());
+
+        // 4. Notify Server
+        socket.emit('leave-room');
         
-        // 4. Reset UI
+        // 5. Reset UI
         currentRoom = null;
         document.getElementById('status-text').innerText = "SYSTEM IDLE";
         document.getElementById('status-dot').classList.remove('active');
         document.getElementById('controls').classList.remove('visible');
-        document.getElementById('avatar-grid').innerHTML = ''; // Remove avatars
+        document.getElementById('avatar-grid').innerHTML = ''; 
         
         // Un-highlight cards
         document.querySelectorAll('.card').forEach(c => c.classList.remove('active'));
 
         addSystemMsg("Disconnected from frequency.");
-    }
+}
 
     // Connect to a new user who just joined
     function connectToNewUser(userId, userName, userPeerId, stream) {
