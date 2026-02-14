@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>Orbit | Mobile</title>
+    <title>Orbit | Debug Mode</title>
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
     <script src="/socket.io/socket.io.js"></script>
     <style>
@@ -14,77 +14,57 @@
         
         body { 
             background: var(--bg); color: var(--text); font-family: 'Inter', sans-serif; 
-            /* Use dvh to fix Android address bar resizing issues */
-            height: 100dvh; 
-            width: 100vw; 
-            overflow: hidden;
+            height: 100dvh; width: 100vw; overflow: hidden;
             display: flex; flex-direction: column;
         }
 
-        /* --- LAYOUT --- */
-        .dashboard { 
-            flex: 1; /* Takes up top space */
-            display: flex; flex-direction: column; 
-            min-height: 0; /* Allows shrinking */
-            border-bottom: 1px solid #333;
-        }
+        /* DASHBOARD LAYOUT */
+        .dashboard { flex: 1; display: flex; flex-direction: column; min-height: 0; position: relative; }
+        .stage { flex: 1; background: radial-gradient(circle at center, #1a1d2e 0%, var(--bg) 80%); position: relative; display: flex; justify-content: center; align-items: center; }
+        .deck { height: auto; padding: 10px; background: var(--panel); display: grid; grid-template-columns: 1fr 1fr; gap: 8px; border-top: 1px solid #333; }
+        .sidebar { height: 35%; background: #0f111a; display: flex; flex-direction: column; border-top: 1px solid #333; }
 
-        .stage { 
-            flex: 1; 
-            background: radial-gradient(circle at center, #1a1d2e 0%, var(--bg) 80%); 
-            position: relative; display: flex; justify-content: center; align-items: center; 
-        }
-
-        .deck { 
-            height: auto; padding: 10px; background: var(--panel);
-            display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
-        }
-
-        .sidebar { 
-            height: 40%; /* Fixed height for chat on mobile */
-            background: #0f111a; 
-            display: flex; flex-direction: column; 
-        }
-
-        /* --- COMPONENTS --- */
-        .avatar-grid { display: flex; gap: 15px; flex-wrap: wrap; justify-content: center; padding: 10px; }
-        .user-node { width: 75px; height: 75px; border-radius: 22px; background: #222; position: relative; display: flex; justify-content: center; align-items: center; border: 2px solid transparent; transition: 0.2s; }
+        /* COMPONENTS */
+        .avatar-grid { display: flex; gap: 15px; flex-wrap: wrap; justify-content: center; padding: 10px; z-index: 5; }
+        .user-node { width: 80px; height: 80px; border-radius: 22px; background: #222; position: relative; display: flex; justify-content: center; align-items: center; border: 2px solid transparent; transition: 0.2s; }
         .user-node img { width: 100%; height: 100%; object-fit: cover; border-radius: 20px; opacity: 0.8; }
         .user-node.speaking { border-color: var(--accent); transform: scale(1.05); box-shadow: 0 0 15px rgba(0,217,255,0.4); }
         .username-tag { position: absolute; bottom: -10px; background: #000; padding: 2px 6px; border-radius: 4px; font-size: 0.7rem; font-family: 'Rajdhani'; font-weight: 700; white-space: nowrap; z-index: 2; }
 
-        .card { 
-            background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05); 
-            border-radius: 10px; padding: 12px; cursor: pointer; text-align: center;
-        }
+        .card { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05); border-radius: 10px; padding: 15px; cursor: pointer; text-align: center; }
         .card.active { border-color: var(--accent); background: rgba(0,217,255,0.1); }
         .card h3 { font-family: 'Rajdhani'; font-size: 1rem; margin: 0; }
 
-        .controls { 
-            position: absolute; bottom: 10px; display: flex; gap: 10px; 
-            opacity: 0; pointer-events: none; transition: 0.3s; 
-            background: rgba(0,0,0,0.6); padding: 8px; border-radius: 16px; z-index: 10;
-        }
+        .controls { position: absolute; bottom: 10px; display: flex; gap: 10px; opacity: 0; pointer-events: none; transition: 0.3s; background: rgba(0,0,0,0.6); padding: 8px; border-radius: 16px; z-index: 10; }
         .controls.visible { opacity: 1; pointer-events: all; }
         .btn { background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.1); color: white; width: 45px; height: 45px; border-radius: 12px; cursor: pointer; font-size: 1.2rem; display: flex; align-items: center; justify-content: center; }
         .btn.hangup { color: #ff0055; border-color: rgba(255,0,85,0.3); }
 
-        /* --- CHAT --- */
+        /* CHAT */
         .chat-area { flex: 1; padding: 10px; overflow-y: auto; display: flex; flex-direction: column; }
-        .msg { font-size: 0.85rem; margin-bottom: 5px; line-height: 1.3; color: #ccc; }
-        .msg b { color: var(--accent); }
-        
-        .input-area { 
-            padding: 10px; background: #151725; border-top: 1px solid #333; 
-            display: flex; gap: 10px; /* Fix for button alignment */
+        .msg { font-size: 0.85rem; margin-bottom: 5px; color: #ccc; }
+        .input-area { padding: 10px; background: #151725; border-top: 1px solid #333; display: flex; gap: 10px; }
+        .chat-input { flex: 1; padding: 10px; background: #000; border: 1px solid #333; color: white; border-radius: 8px; font-size: 16px; }
+        .send-btn { background: var(--accent); border: none; color: #000; width: 40px; border-radius: 8px; font-weight: bold; }
+
+        /* AUDIO UNLOCK OVERLAY */
+        #audio-unlock {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.8); z-index: 50;
+            display: none; justify-content: center; align-items: center; flex-direction: column;
         }
-        .chat-input { 
-            flex: 1; padding: 12px; background: #000; border: 1px solid #333; 
-            color: white; border-radius: 8px; font-size: 16px; /* Prevents zoom on iOS */
+        .unlock-btn {
+            padding: 20px 40px; background: #00ff9d; color: black; font-weight: bold; font-size: 1.2rem;
+            border: none; border-radius: 50px; cursor: pointer; animation: pulse 2s infinite;
         }
-        .send-btn {
-            background: var(--accent); border: none; color: #000; 
-            width: 40px; border-radius: 8px; font-weight: bold; cursor: pointer;
+        @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(0, 255, 157, 0.7); } 70% { box-shadow: 0 0 0 20px rgba(0, 255, 157, 0); } 100% { box-shadow: 0 0 0 0 rgba(0, 255, 157, 0); } }
+
+        /* DEBUG CONSOLE (Tiny text at bottom) */
+        #debug-log {
+            position: fixed; bottom: 0; left: 0; width: 100%; height: 30px;
+            background: rgba(0,0,0,0.8); color: lime; font-family: monospace;
+            font-size: 10px; overflow: hidden; padding: 2px 5px; pointer-events: none; z-index: 9999;
+            white-space: nowrap; border-top: 1px solid #333;
         }
 
         /* LOGIN */
@@ -92,8 +72,7 @@
         .login-box { width: 80%; max-width: 300px; text-align: center; }
         .login-input { width: 100%; padding: 15px; background: #1a1d2e; border: 1px solid #333; color: white; border-radius: 8px; margin-bottom: 15px; text-align: center; font-size: 1.1rem; }
         .login-btn { width: 100%; padding: 15px; background: var(--accent); border: none; font-weight: bold; border-radius: 8px; font-size: 1rem; color: #000; }
-
-        /* Media Query for Desktop override */
+        
         @media (min-width: 769px) {
             body { flex-direction: row; }
             .dashboard { height: 100%; width: 70%; border-bottom: none; border-right: 1px solid #333; }
@@ -108,12 +87,20 @@
         <div class="login-box">
             <h1 style="font-family:'Rajdhani'; color:white; margin-bottom:20px;">ORBIT</h1>
             <input type="text" id="username-input" class="login-input" placeholder="Callsign">
-            <button class="login-btn" onclick="enterApp()">CONNECT</button>
+            <button class="login-btn" onclick="enterApp()">CONNECT SYSTEM</button>
         </div>
     </div>
 
+    <div id="audio-unlock">
+        <button class="unlock-btn" onclick="unlockAudioEngine()">TAP TO JOIN VOICE</button>
+        <div style="color:white; margin-top:10px; font-size:0.8rem;">Required for audio transmission</div>
+    </div>
+
+    <div id="debug-log">System Ready...</div>
+
     <div class="dashboard">
-        <div class="stage" onclick="resumeAudio()"> <div style="position:absolute; top:10px; left:10px; color:#555; font-size:0.7rem;" id="status-text">SYSTEM IDLE</div>
+        <div class="stage">
+            <div style="position:absolute; top:10px; left:10px; color:#555; font-size:0.7rem;" id="status-text">IDLE</div>
             
             <div class="avatar-grid" id="avatar-grid"></div>
             
@@ -125,17 +112,15 @@
         </div>
 
         <div class="deck">
-            <div class="card" onclick="joinRoom('Squad')"><h3>Squad</h3></div>
-            <div class="card" onclick="joinRoom('Lobby')"><h3>Lobby</h3></div>
-            <div class="card" onclick="joinRoom('Tactical')"><h3>Tactical</h3></div>
-            <div class="card" onclick="joinRoom('Chill')"><h3>Chill</h3></div>
+            <div class="card" onclick="prepareJoin('Squad')"><h3>Squad</h3></div>
+            <div class="card" onclick="prepareJoin('Lobby')"><h3>Lobby</h3></div>
+            <div class="card" onclick="prepareJoin('Tactical')"><h3>Tactical</h3></div>
+            <div class="card" onclick="prepareJoin('Chill')"><h3>Chill</h3></div>
         </div>
     </div>
 
     <div class="sidebar">
-        <div class="chat-area" id="chat-box">
-            <div class="msg">System ready.</div>
-        </div>
+        <div class="chat-area" id="chat-box"></div>
         <div class="input-area">
             <input class="chat-input" id="msg-input" placeholder="Message..." autocomplete="off">
             <button class="send-btn" onclick="manualSend()">></button>
@@ -143,15 +128,42 @@
     </div>
 
     <script>
+        // --- LOGGING UTILITY ---
+        function log(msg) {
+            console.log(msg);
+            const el = document.getElementById('debug-log');
+            el.innerText = msg; // Show last message
+            el.style.color = msg.includes("Error") ? "red" : "lime";
+        }
+
         const socket = io();
-        const myPeer = new Peer(undefined, { config: {'iceServers': [{ url: 'stun:stun.l.google.com:19302' }]} });
+        
+        // ROBUST PEER CONFIG
+        const myPeer = new Peer(undefined, { 
+            debug: 2, // Print errors to console
+            config: {
+                'iceServers': [
+                    { url: 'stun:stun.l.google.com:19302' },
+                    { url: 'stun:stun1.l.google.com:19302' },
+                    { url: 'stun:stun2.l.google.com:19302' }
+                ]
+            } 
+        });
 
         let myPeerId = null, myUsername = "Unknown", myStream = null, currentRoom = null;
         let peers = {}, audioCtx = null, noiseEnabled = true;
+        let pendingRoom = null; // Store room while waiting for user tap
 
-        myPeer.on('open', id => myPeerId = id);
+        // --- 1. INITIALIZATION ---
 
-        // --- CORE FUNCTIONS ---
+        myPeer.on('open', id => {
+            myPeerId = id;
+            log("PeerID Generated: " + id);
+        });
+
+        myPeer.on('error', err => {
+            log("Peer Error: " + err.type);
+        });
 
         function enterApp() {
             const name = document.getElementById('username-input').value;
@@ -159,24 +171,36 @@
             myUsername = name;
             document.getElementById('login-modal').style.display = 'none';
             socket.emit('join-app', { username: name, peerId: myPeerId });
-            
-            // Init Audio Context immediately on user click
-            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            log("Connected to Server.");
         }
 
-        // Fix for Android "AudioContext was not allowed to start"
-        function resumeAudio() {
-            if(audioCtx && audioCtx.state === 'suspended') {
-                audioCtx.resume();
-            }
-        }
+        // --- 2. JOIN LOGIC (The Fix) ---
 
-        function joinRoom(roomName) {
-            resumeAudio(); // Ensure audio is ready
+        // Step A: User clicks card -> Show "Tap to Unlock" overlay
+        function prepareJoin(roomName) {
             if(currentRoom === roomName) return;
+            pendingRoom = roomName;
+            
+            // Show overlay to force user interaction
+            const unlocker = document.getElementById('audio-unlock');
+            unlocker.style.display = 'flex';
+        }
+
+        // Step B: User taps overlay -> Initialize Audio -> Join
+        function unlockAudioEngine() {
+            document.getElementById('audio-unlock').style.display = 'none';
+            
+            // 1. Create/Resume Audio Context (MUST happen in click)
+            if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+            
+            log("Audio Engine Unlocked. Connecting...");
+            joinRoomActual(pendingRoom);
+        }
+
+        function joinRoomActual(roomName) {
             if(currentRoom) leaveRoom();
 
-            // Mobile-optimized constraints
             const constraints = { 
                 audio: { 
                     echoCancellation: true, 
@@ -195,59 +219,64 @@
                 setupVisualizer(stream, myPeerId);
                 
                 socket.emit('join-room', roomName);
+                log("Mic Active. Joined " + roomName);
 
-                // Answer incoming calls
+                // ANSWER CALLS
                 myPeer.on('call', call => {
+                    log("Incoming call...");
                     call.answer(stream);
-                    const audio = document.createElement('audio');
-                    peers[call.peer] = call;
-                    
-                    call.on('stream', userStream => {
-                        addAudio(audio, userStream);
-                        setupVisualizer(userStream, call.peer);
-                    });
-                    
-                    call.on('close', () => { audio.remove(); delete peers[call.peer]; });
+                    handleCall(call);
                 });
 
             }).catch(e => {
-                alert("Microphone Error: " + e.message);
+                log("Mic Access Denied: " + e.message);
+                alert("You must allow Microphone access!");
             });
         }
+
+        // --- 3. CONNECTION HANDLERS ---
 
         function connectToNewUser(peerId) {
-            const call = myPeer.call(peerId, myStream);
-            const audio = document.createElement('audio');
-            peers[peerId] = call;
-            
-            call.on('stream', userStream => {
-                addAudio(audio, userStream);
-                setupVisualizer(userStream, peerId);
-            });
-            
-            call.on('close', () => audio.remove());
+            log("Calling " + peerId);
+            // Delay slightly to ensure they are ready
+            setTimeout(() => {
+                const call = myPeer.call(peerId, myStream);
+                handleCall(call);
+            }, 1000);
         }
 
-        // --- AUDIO & VISUALS ---
+        function handleCall(call) {
+            const audio = document.createElement('audio');
+            peers[call.peer] = call;
+            
+            call.on('stream', userStream => {
+                log("Received Audio Stream");
+                addAudio(audio, userStream);
+                setupVisualizer(userStream, call.peer);
+            });
+            
+            call.on('error', e => log("Call Error: " + e));
+            call.on('close', () => { audio.remove(); delete peers[call.peer]; });
+        }
 
         function addAudio(audio, stream) {
             audio.srcObject = stream;
             audio.autoplay = true;
-            audio.playsInline = true; // Critical for iOS/Android
-            audio.muted = false;      // Ensure not muted
+            audio.playsInline = true;
             document.body.append(audio);
             
-            // Try to play immediately
-            const playPromise = audio.play();
-            if (playPromise !== undefined) {
-                playPromise.catch(error => {
-                    console.log("Auto-play prevented. User interaction required.");
-                });
-            }
+            // Explicitly try to play
+            audio.play().then(() => {
+                log("Audio playing");
+            }).catch(e => {
+                log("Autoplay blocked: " + e.message);
+            });
         }
 
+        // --- 4. VISUALIZER ---
+
         function setupVisualizer(stream, peerId) {
-            if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            if (!audioCtx) return;
             const src = audioCtx.createMediaStreamSource(stream);
             const analyser = audioCtx.createAnalyser();
             analyser.fftSize = 256;
@@ -261,7 +290,6 @@
                 let sum = 0;
                 for(let i=0; i<data.length; i++) sum += Math.abs(data[i] - 128);
                 
-                // Sensitivity threshold
                 if((sum/data.length) > 3) el.classList.add('speaking');
                 else el.classList.remove('speaking');
                 
@@ -270,7 +298,7 @@
             loop();
         }
 
-        // --- UTILS ---
+        // --- 5. CLEANUP & UTILS ---
 
         function leaveRoom() {
             if(!currentRoom) return;
@@ -281,6 +309,7 @@
             currentRoom = null;
             document.getElementById('avatar-grid').innerHTML = '';
             updateUI(false);
+            log("Disconnected.");
         }
 
         function manualSend() {
@@ -291,14 +320,15 @@
             }
         }
         
-        // Handle Enter Key for Chat
         document.getElementById('msg-input').addEventListener('keypress', function (e) {
             if (e.key === 'Enter') manualSend();
         });
 
+        // SOCKET EVENTS
         socket.on('user-connected', user => {
+            log(user.username + " joined.");
             addAvatar(user.peerId, user.username, false);
-            setTimeout(() => connectToNewUser(user.peerId), 1000);
+            connectToNewUser(user.peerId);
         });
         
         socket.on('user-disconnected', id => {
@@ -317,6 +347,7 @@
             box.scrollTop = box.scrollHeight;
         });
 
+        // UI HELPERS
         function updateUI(active, room) {
             const ctrls = document.getElementById('controls');
             const stat = document.getElementById('status-text');
