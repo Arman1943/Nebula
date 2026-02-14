@@ -73,8 +73,10 @@
         <div class="input-area"><input class="chat-input" placeholder="Transmit..." onkeypress="sendChat(event)"></div>
     </div>
 
-    <script>
+        <script>
         const socket = io();
+        
+        // PeerJS Config (Google STUN servers help penetrate firewalls)
         const myPeer = new Peer(undefined, {
             config: {'iceServers': [{ url: 'stun:stun.l.google.com:19302' }]} 
         });
@@ -83,7 +85,8 @@
         let myUsername = "Unknown";
         let myStream = null;
         let currentRoom = null;
-        let peers = {}; // Track active calls: { peerId: callObject }
+        let peers = {}; // Track active calls
+        let audioCtx = null; // Shared Audio Context for visualizers
 
         // 1. Setup Peer
         myPeer.on('open', id => {
@@ -97,12 +100,18 @@
             myUsername = name;
             document.getElementById('login-modal').style.display = 'none';
             socket.emit('join-app', { username: name, peerId: myPeerId });
+            
+            // Initialize Audio Context on user interaction (Required by browsers)
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
         }
 
         // 2. Join Voice Room
         function joinRoom(roomName) {
             if(currentRoom === roomName) return;
-            if(currentRoom) leaveRoom(); // Leave old first
+            if(currentRoom) leaveRoom(); 
+
+            // Resume audio context if suspended
+            if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
 
             navigator.mediaDevices.getUserMedia({ audio: true, video: false }).then(stream => {
                 myStream = stream;
@@ -112,29 +121,29 @@
                 updateUI(true, roomName);
                 addAvatar(myPeerId, myUsername, true);
 
+                // 1. Visualize My Own Audio
+                setupVisualizer(stream, myPeerId);
+
                 // Join on Server
                 socket.emit('join-room', roomName);
 
-                // Handle Incoming Calls
+                // Handle Incoming Calls (People calling me)
                 myPeer.on('call', call => {
-                    // Answer their call with our stream
-                    call.answer(stream);
+                    call.answer(stream); // Send them my stream
                     
                     const audio = document.createElement('audio');
-                    audio.autoplay = true; // IMPORTANT
-                    audio.playsInline = true;
-
-                    // Save call so we can close it later
-                    peers[call.peer] = call;
+                    peers[call.peer] = call; // Save call
 
                     call.on('stream', userAudioStream => {
                         addAudioStream(audio, userAudioStream);
+                        
+                        // 2. Visualize Their Audio (Incoming)
+                        // We need to find WHO this is. PeerJS doesn't send metadata in call.
+                        // For this simple demo, we rely on the peerId matching the avatar ID.
+                        setupVisualizer(userAudioStream, call.peer);
                     });
 
-                    call.on('close', () => {
-                        audio.remove();
-                        delete peers[call.peer];
-                    });
+                    call.on('close', () => { audio.remove(); delete peers[call.peer]; });
                 });
 
             }).catch(err => {
@@ -145,28 +154,58 @@
 
         // 3. Connect to New User (Outgoing Call)
         function connectToNewUser(peerId, username) {
-            // We call them
             const call = myPeer.call(peerId, myStream);
             const audio = document.createElement('audio');
-            audio.autoplay = true; // IMPORTANT
-            audio.playsInline = true;
+            peers[peerId] = call;
 
             call.on('stream', userAudioStream => {
                 addAudioStream(audio, userAudioStream);
+                
+                // 3. Visualize Their Audio (Outgoing)
+                setupVisualizer(userAudioStream, peerId);
             });
 
-            call.on('close', () => {
-                audio.remove();
-            });
+            call.on('close', () => { audio.remove(); });
+        }
 
-            peers[peerId] = call;
+        // --- THE VISUALIZER LOGIC (Restored!) ---
+        function setupVisualizer(stream, peerId) {
+            if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+            const source = audioCtx.createMediaStreamSource(stream);
+            const analyser = audioCtx.createAnalyser();
+            analyser.fftSize = 64; // Low detail is fine for volume
+            source.connect(analyser);
+
+            const data = new Uint8Array(analyser.frequencyBinCount);
+            
+            function analyze() {
+                if(!currentRoom) return; // Stop loop if disconnected
+                
+                analyser.getByteFrequencyData(data);
+                
+                // Calculate Volume (Average of frequencies)
+                let sum = 0;
+                for(let i = 0; i < data.length; i++) sum += data[i];
+                let volume = sum / data.length;
+
+                const el = document.getElementById(`node-${peerId}`);
+                if(el) {
+                    // Threshold: 10 (Adjust if too sensitive)
+                    if(volume > 10) el.classList.add('speaking');
+                    else el.classList.remove('speaking');
+                }
+                requestAnimationFrame(analyze);
+            }
+            analyze();
         }
 
         function addAudioStream(audio, stream) {
             audio.srcObject = stream;
-            audio.addEventListener('loadedmetadata', () => {
-                audio.play();
-            });
+            audio.autoplay = true;
+            audio.playsInline = true;
+            // Mute the audio element if it's our own stream (to prevent feedback/echo)
+            // (But logic above attaches 'audio' only for remote streams, so we are good)
             document.body.append(audio);
         }
 
@@ -174,23 +213,17 @@
         function leaveRoom() {
             if(!currentRoom) return;
 
-            // Stop Mic
             if(myStream) {
                 myStream.getTracks().forEach(track => track.stop());
                 myStream = null;
             }
 
-            // Close all Peer Connections
             Object.values(peers).forEach(call => call.close());
             peers = {};
 
-            // Remove all audio elements
             document.querySelectorAll('audio').forEach(el => el.remove());
-
-            // Notify Server
             socket.emit('leave-room');
             
-            // UI Reset
             currentRoom = null;
             document.getElementById('avatar-grid').innerHTML = '';
             updateUI(false);
@@ -198,18 +231,14 @@
 
         // 5. Socket Events
         socket.on('user-connected', user => {
-            console.log("User connected:", user.username);
             addAvatar(user.peerId, user.username, false);
-            // Wait 1s to ensure their peer is ready, then call
             setTimeout(() => connectToNewUser(user.peerId, user.username), 1000);
         });
 
         socket.on('user-disconnected', peerId => {
-            console.log("User disconnected:", peerId);
-            if(peers[peerId]) peers[peerId].close(); // Close WebRTC
+            if(peers[peerId]) peers[peerId].close();
             delete peers[peerId];
-            
-            const el = document.getElementById(`node-${peerId}`); // Remove Avatar
+            const el = document.getElementById(`node-${peerId}`);
             if(el) el.remove();
         });
 
@@ -223,6 +252,7 @@
         socket.on('new-chat', data => {
             const box = document.getElementById('chat-box');
             box.innerHTML += `<div class="msg"><b>${data.user}:</b> ${data.text}</div>`;
+            box.scrollTop = box.scrollHeight;
         });
 
         // 6. UI Helpers
