@@ -2,113 +2,103 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Orbit | Compact</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>Orbit | Mobile</title>
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
     <script src="/socket.io/socket.io.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@600;700&family=Inter:wght@400;600&display=swap');
         
         :root { --bg: #0b0c15; --panel: #151725; --accent: #00d9ff; --text: #e0e6ed; }
-        * { margin: 0; padding: 0; box-sizing: border-box; }
+        * { margin: 0; padding: 0; box-sizing: border-box; outline: none; -webkit-tap-highlight-color: transparent; }
         
         body { 
             background: var(--bg); color: var(--text); font-family: 'Inter', sans-serif; 
-            height: 100vh; width: 100vw; overflow: hidden;
-            display: flex; flex-direction: row; /* Default Desktop */
+            /* Use dvh to fix Android address bar resizing issues */
+            height: 100dvh; 
+            width: 100vw; 
+            overflow: hidden;
+            display: flex; flex-direction: column;
         }
 
-        /* --- DESKTOP LAYOUT --- */
-        .dashboard { flex: 1; display: flex; flex-direction: column; height: 100%; }
-        .sidebar { width: 350px; background: #0f111a; border-left: 1px solid #222; display: flex; flex-direction: column; height: 100%; }
+        /* --- LAYOUT --- */
+        .dashboard { 
+            flex: 1; /* Takes up top space */
+            display: flex; flex-direction: column; 
+            min-height: 0; /* Allows shrinking */
+            border-bottom: 1px solid #333;
+        }
 
-        /* STAGE (Voice Area) */
         .stage { 
-            flex: 1; /* Takes remaining height */
+            flex: 1; 
             background: radial-gradient(circle at center, #1a1d2e 0%, var(--bg) 80%); 
             position: relative; display: flex; justify-content: center; align-items: center; 
         }
 
-        /* AVATARS */
-        .avatar-grid { display: flex; gap: 20px; flex-wrap: wrap; justify-content: center; align-items: center; padding: 10px; }
-        .user-node { width: 90px; height: 90px; border-radius: 25px; background: #222; position: relative; display: flex; justify-content: center; align-items: center; border: 2px solid transparent; transition: 0.2s; }
-        .user-node img { width: 100%; height: 100%; object-fit: cover; border-radius: 22px; opacity: 0.7; }
-        .user-node.speaking { border-color: var(--accent); transform: scale(1.05); box-shadow: 0 0 20px rgba(0,217,255,0.4); }
-        .username-tag { position: absolute; bottom: -10px; background: #000; padding: 2px 6px; border-radius: 4px; font-size: 0.7rem; font-family: 'Rajdhani'; font-weight: 700; white-space: nowrap; }
-
-        /* CONTROLS */
-        .controls { 
-            position: absolute; bottom: 15px; display: flex; gap: 10px; 
-            opacity: 0; pointer-events: none; transition: 0.3s; 
-            background: rgba(0,0,0,0.6); padding: 8px; border-radius: 16px;
-        }
-        .controls.visible { opacity: 1; pointer-events: all; }
-        .btn { background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.1); color: white; width: 45px; height: 45px; border-radius: 10px; cursor: pointer; font-size: 1.1rem; display: flex; align-items: center; justify-content: center; }
-        .btn.hangup { color: #ff0055; border-color: rgba(255,0,85,0.3); }
-
-        /* DECK (Channel Cards) */
         .deck { 
-            height: auto; min-height: 140px; background: var(--panel); 
-            padding: 15px; border-top: 1px solid #222;
-            display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); /* Auto Grid */
-            gap: 10px; align-content: center;
+            height: auto; padding: 10px; background: var(--panel);
+            display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
         }
-        
+
+        .sidebar { 
+            height: 40%; /* Fixed height for chat on mobile */
+            background: #0f111a; 
+            display: flex; flex-direction: column; 
+        }
+
+        /* --- COMPONENTS --- */
+        .avatar-grid { display: flex; gap: 15px; flex-wrap: wrap; justify-content: center; padding: 10px; }
+        .user-node { width: 75px; height: 75px; border-radius: 22px; background: #222; position: relative; display: flex; justify-content: center; align-items: center; border: 2px solid transparent; transition: 0.2s; }
+        .user-node img { width: 100%; height: 100%; object-fit: cover; border-radius: 20px; opacity: 0.8; }
+        .user-node.speaking { border-color: var(--accent); transform: scale(1.05); box-shadow: 0 0 15px rgba(0,217,255,0.4); }
+        .username-tag { position: absolute; bottom: -10px; background: #000; padding: 2px 6px; border-radius: 4px; font-size: 0.7rem; font-family: 'Rajdhani'; font-weight: 700; white-space: nowrap; z-index: 2; }
+
         .card { 
             background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05); 
-            border-radius: 12px; padding: 15px; cursor: pointer; text-align: center;
-            display: flex; flex-direction: column; justify-content: center; align-items: center;
+            border-radius: 10px; padding: 12px; cursor: pointer; text-align: center;
         }
         .card.active { border-color: var(--accent); background: rgba(0,217,255,0.1); }
-        .card h3 { font-family: 'Rajdhani'; font-size: 1.1rem; margin-bottom: 2px; }
-        .card small { font-size: 0.7rem; color: #888; }
+        .card h3 { font-family: 'Rajdhani'; font-size: 1rem; margin: 0; }
 
-        /* CHAT */
+        .controls { 
+            position: absolute; bottom: 10px; display: flex; gap: 10px; 
+            opacity: 0; pointer-events: none; transition: 0.3s; 
+            background: rgba(0,0,0,0.6); padding: 8px; border-radius: 16px; z-index: 10;
+        }
+        .controls.visible { opacity: 1; pointer-events: all; }
+        .btn { background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.1); color: white; width: 45px; height: 45px; border-radius: 12px; cursor: pointer; font-size: 1.2rem; display: flex; align-items: center; justify-content: center; }
+        .btn.hangup { color: #ff0055; border-color: rgba(255,0,85,0.3); }
+
+        /* --- CHAT --- */
         .chat-area { flex: 1; padding: 10px; overflow-y: auto; display: flex; flex-direction: column; }
-        .msg { font-size: 0.85rem; margin-bottom: 6px; word-wrap: break-word; line-height: 1.3; }
-        .input-area { padding: 10px; background: #1a1d2e; border-top: 1px solid #222; }
-        .chat-input { width: 100%; padding: 10px; background: #000; border: 1px solid #333; color: white; border-radius: 6px; font-size: 16px; }
+        .msg { font-size: 0.85rem; margin-bottom: 5px; line-height: 1.3; color: #ccc; }
+        .msg b { color: var(--accent); }
+        
+        .input-area { 
+            padding: 10px; background: #151725; border-top: 1px solid #333; 
+            display: flex; gap: 10px; /* Fix for button alignment */
+        }
+        .chat-input { 
+            flex: 1; padding: 12px; background: #000; border: 1px solid #333; 
+            color: white; border-radius: 8px; font-size: 16px; /* Prevents zoom on iOS */
+        }
+        .send-btn {
+            background: var(--accent); border: none; color: #000; 
+            width: 40px; border-radius: 8px; font-weight: bold; cursor: pointer;
+        }
 
-        /* LOGIN MODAL */
-        #login-modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.95); z-index: 1000; display: flex; justify-content: center; align-items: center; }
-        .login-box { background: #151725; padding: 30px; border-radius: 15px; width: 85%; max-width: 320px; text-align: center; border: 1px solid #333; }
-        .login-btn { width: 100%; padding: 12px; background: var(--accent); border: none; font-weight: bold; margin-top: 15px; border-radius: 8px; cursor: pointer; }
+        /* LOGIN */
+        #login-modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #0b0c15; z-index: 2000; display: flex; justify-content: center; align-items: center; }
+        .login-box { width: 80%; max-width: 300px; text-align: center; }
+        .login-input { width: 100%; padding: 15px; background: #1a1d2e; border: 1px solid #333; color: white; border-radius: 8px; margin-bottom: 15px; text-align: center; font-size: 1.1rem; }
+        .login-btn { width: 100%; padding: 15px; background: var(--accent); border: none; font-weight: bold; border-radius: 8px; font-size: 1rem; color: #000; }
 
-        /* --- MOBILE LAYOUT (The important part) --- */
-        @media (max-width: 768px) {
-            body { flex-direction: column; } /* Stack vertically */
-            
-            .dashboard { 
-                flex: none; 
-                height: 55%; /* Top 55% for Voice & Cards */
-                display: flex; flex-direction: column;
-            }
-
-            .stage { 
-                flex: 1; /* Takes available space */
-                min-height: 0; 
-            }
-
-            /* Make deck smaller and strictly 2 rows max */
-            .deck { 
-                height: auto; 
-                padding: 8px; 
-                gap: 8px;
-                grid-template-columns: 1fr 1fr; /* 2 Columns */
-            }
-            .card { padding: 10px; }
-            .card h3 { font-size: 0.9rem; }
-            .card small { display: none; } /* Hide descriptions to save space */
-
-            .sidebar { 
-                width: 100%; 
-                height: 45%; /* Bottom 45% for Chat */
-                border-left: none; border-top: 1px solid #333;
-            }
-            
-            .avatar-grid { gap: 10px; }
-            .user-node { width: 65px; height: 65px; border-radius: 20px; }
-            .username-tag { bottom: -15px; font-size: 0.6rem; }
+        /* Media Query for Desktop override */
+        @media (min-width: 769px) {
+            body { flex-direction: row; }
+            .dashboard { height: 100%; width: 70%; border-bottom: none; border-right: 1px solid #333; }
+            .sidebar { height: 100%; width: 30%; }
+            .deck { grid-template-columns: repeat(4, 1fr); }
         }
     </style>
 </head>
@@ -116,15 +106,14 @@
 
     <div id="login-modal">
         <div class="login-box">
-            <h2 style="font-family:'Rajdhani'; color:white; margin-bottom:10px;">ORBIT LINK</h2>
-            <input type="text" id="username-input" placeholder="Callsign" style="width:100%; padding:10px; background:#000; color:white; border:1px solid #333; border-radius:5px; text-align:center;">
-            <button class="login-btn" onclick="enterApp()">INITIALIZE</button>
+            <h1 style="font-family:'Rajdhani'; color:white; margin-bottom:20px;">ORBIT</h1>
+            <input type="text" id="username-input" class="login-input" placeholder="Callsign">
+            <button class="login-btn" onclick="enterApp()">CONNECT</button>
         </div>
     </div>
 
     <div class="dashboard">
-        <div class="stage">
-            <div style="position:absolute; top:10px; left:10px; color:#555; font-size:0.7rem; font-weight:bold;" id="status-text">IDLE</div>
+        <div class="stage" onclick="resumeAudio()"> <div style="position:absolute; top:10px; left:10px; color:#555; font-size:0.7rem;" id="status-text">SYSTEM IDLE</div>
             
             <div class="avatar-grid" id="avatar-grid"></div>
             
@@ -136,19 +125,20 @@
         </div>
 
         <div class="deck">
-            <div class="card" onclick="joinRoom('Squad')"><h3>Squad</h3><small>Team</small></div>
-            <div class="card" onclick="joinRoom('Lobby')"><h3>Lobby</h3><small>General</small></div>
-            <div class="card" onclick="joinRoom('Tactical')"><h3>Tactical</h3><small>Ops</small></div>
-            <div class="card" onclick="joinRoom('Chill')"><h3>Chill</h3><small>Music</small></div>
+            <div class="card" onclick="joinRoom('Squad')"><h3>Squad</h3></div>
+            <div class="card" onclick="joinRoom('Lobby')"><h3>Lobby</h3></div>
+            <div class="card" onclick="joinRoom('Tactical')"><h3>Tactical</h3></div>
+            <div class="card" onclick="joinRoom('Chill')"><h3>Chill</h3></div>
         </div>
     </div>
 
     <div class="sidebar">
         <div class="chat-area" id="chat-box">
-            <div class="msg" style="color:#666; font-style:italic;">System ready.</div>
+            <div class="msg">System ready.</div>
         </div>
         <div class="input-area">
-            <input class="chat-input" placeholder="Message..." onkeypress="sendChat(event)">
+            <input class="chat-input" id="msg-input" placeholder="Message..." autocomplete="off">
+            <button class="send-btn" onclick="manualSend()">></button>
         </div>
     </div>
 
@@ -161,21 +151,40 @@
 
         myPeer.on('open', id => myPeerId = id);
 
+        // --- CORE FUNCTIONS ---
+
         function enterApp() {
             const name = document.getElementById('username-input').value;
             if(!name) return;
             myUsername = name;
             document.getElementById('login-modal').style.display = 'none';
             socket.emit('join-app', { username: name, peerId: myPeerId });
+            
+            // Init Audio Context immediately on user click
             audioCtx = new (window.AudioContext || window.webkitAudioContext)();
         }
 
+        // Fix for Android "AudioContext was not allowed to start"
+        function resumeAudio() {
+            if(audioCtx && audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+        }
+
         function joinRoom(roomName) {
+            resumeAudio(); // Ensure audio is ready
             if(currentRoom === roomName) return;
             if(currentRoom) leaveRoom();
-            if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
 
-            const constraints = { audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: false };
+            // Mobile-optimized constraints
+            const constraints = { 
+                audio: { 
+                    echoCancellation: true, 
+                    noiseSuppression: true, 
+                    autoGainControl: true 
+                }, 
+                video: false 
+            };
 
             navigator.mediaDevices.getUserMedia(constraints).then(stream => {
                 myStream = stream;
@@ -184,32 +193,57 @@
                 updateUI(true, roomName);
                 addAvatar(myPeerId, myUsername, true);
                 setupVisualizer(stream, myPeerId);
-                updateNoiseBtn();
-
+                
                 socket.emit('join-room', roomName);
 
+                // Answer incoming calls
                 myPeer.on('call', call => {
                     call.answer(stream);
                     const audio = document.createElement('audio');
                     peers[call.peer] = call;
+                    
                     call.on('stream', userStream => {
                         addAudio(audio, userStream);
                         setupVisualizer(userStream, call.peer);
                     });
+                    
                     call.on('close', () => { audio.remove(); delete peers[call.peer]; });
                 });
-            }).catch(e => alert("Mic denied"));
+
+            }).catch(e => {
+                alert("Microphone Error: " + e.message);
+            });
         }
 
         function connectToNewUser(peerId) {
             const call = myPeer.call(peerId, myStream);
             const audio = document.createElement('audio');
             peers[peerId] = call;
+            
             call.on('stream', userStream => {
                 addAudio(audio, userStream);
                 setupVisualizer(userStream, peerId);
             });
+            
             call.on('close', () => audio.remove());
+        }
+
+        // --- AUDIO & VISUALS ---
+
+        function addAudio(audio, stream) {
+            audio.srcObject = stream;
+            audio.autoplay = true;
+            audio.playsInline = true; // Critical for iOS/Android
+            audio.muted = false;      // Ensure not muted
+            document.body.append(audio);
+            
+            // Try to play immediately
+            const playPromise = audio.play();
+            if (playPromise !== undefined) {
+                playPromise.catch(error => {
+                    console.log("Auto-play prevented. User interaction required.");
+                });
+            }
         }
 
         function setupVisualizer(stream, peerId) {
@@ -226,17 +260,17 @@
                 analyser.getByteTimeDomainData(data);
                 let sum = 0;
                 for(let i=0; i<data.length; i++) sum += Math.abs(data[i] - 128);
-                if((sum/data.length) > 5) el.classList.add('speaking');
+                
+                // Sensitivity threshold
+                if((sum/data.length) > 3) el.classList.add('speaking');
                 else el.classList.remove('speaking');
+                
                 requestAnimationFrame(loop);
             }
             loop();
         }
 
-        function addAudio(audio, stream) {
-            audio.srcObject = stream; audio.autoplay = true; audio.playsInline = true;
-            document.body.append(audio);
-        }
+        // --- UTILS ---
 
         function leaveRoom() {
             if(!currentRoom) return;
@@ -249,18 +283,34 @@
             updateUI(false);
         }
 
+        function manualSend() {
+            const input = document.getElementById('msg-input');
+            if(input.value.trim() !== "") {
+                socket.emit('chat-msg', input.value); 
+                input.value = '';
+            }
+        }
+        
+        // Handle Enter Key for Chat
+        document.getElementById('msg-input').addEventListener('keypress', function (e) {
+            if (e.key === 'Enter') manualSend();
+        });
+
         socket.on('user-connected', user => {
             addAvatar(user.peerId, user.username, false);
             setTimeout(() => connectToNewUser(user.peerId), 1000);
         });
+        
         socket.on('user-disconnected', id => {
             if(peers[id]) peers[id].close(); delete peers[id];
             const el = document.getElementById(`node-${id}`); if(el) el.remove();
         });
+        
         socket.on('room-users', users => users.forEach(u => {
             addAvatar(u.peerId, u.username, false);
             connectToNewUser(u.peerId);
         }));
+        
         socket.on('new-chat', data => {
             const box = document.getElementById('chat-box');
             box.innerHTML += `<div class="msg"><b>${data.user}:</b> ${data.text}</div>`;
@@ -285,12 +335,6 @@
             document.getElementById('avatar-grid').appendChild(div);
         }
 
-        function sendChat(e) {
-            if(e.key === 'Enter') {
-                socket.emit('chat-msg', e.target.value); e.target.value = '';
-            }
-        }
-
         function toggleMic() {
             if(!myStream) return;
             const t = myStream.getAudioTracks()[0];
@@ -303,12 +347,9 @@
             const t = myStream.getAudioTracks()[0];
             noiseEnabled = !noiseEnabled;
             t.applyConstraints({ echoCancellation: noiseEnabled, noiseSuppression: noiseEnabled })
-            .then(updateNoiseBtn);
-        }
-
-        function updateNoiseBtn() {
-            const btn = document.getElementById('noise-btn');
-            btn.style.opacity = noiseEnabled ? '1' : '0.5';
+            .then(() => {
+                document.getElementById('noise-btn').style.opacity = noiseEnabled ? '1' : '0.5';
+            });
         }
     </script>
 </body>
