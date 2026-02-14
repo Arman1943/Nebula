@@ -56,8 +56,9 @@
             <div class="avatar-grid" id="avatar-grid"></div>
             
             <div class="controls" id="controls">
-                <button class="btn" onclick="toggleMic()" id="mic-btn">🎤</button>
-                <button class="btn hangup" onclick="leaveRoom()">📞</button>
+                <button class="btn" onclick="toggleMic()" id="mic-btn" title="Mute/Unmute">🎤</button>
+                <button class="btn" onclick="toggleNoise()" id="noise-btn" title="Noise Cancellation" style="border-color:#00ff9d; color:#00ff9d;">〰️</button>
+                <button class="btn hangup" onclick="leaveRoom()" title="Disconnect">📞</button>
             </div>
         </div>
 
@@ -73,226 +74,260 @@
         <div class="input-area"><input class="chat-input" placeholder="Transmit..." onkeypress="sendChat(event)"></div>
     </div>
 
-        <script>
-    const socket = io();
-    
-    // PeerJS with Google STUN (helps connection reliability)
-    const myPeer = new Peer(undefined, {
-        config: {'iceServers': [{ url: 'stun:stun.l.google.com:19302' }]} 
-    });
-
-    let myPeerId = null;
-    let myUsername = "Unknown";
-    let myStream = null;
-    let currentRoom = null;
-    let peers = {}; 
-    let audioCtx = null; 
-
-    // --- 1. SETUP ---
-    myPeer.on('open', id => {
-        myPeerId = id;
-        console.log("My Peer ID:", id);
-    });
-
-    function enterApp() {
-        const name = document.getElementById('username-input').value;
-        if(!name) return;
-        myUsername = name;
-        document.getElementById('login-modal').style.display = 'none';
-        socket.emit('join-app', { username: name, peerId: myPeerId });
+    <script>
+        const socket = io();
         
-        // Resume Audio Context (Required by browser policy)
-        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    }
+        // PeerJS with Google STUN
+        const myPeer = new Peer(undefined, {
+            config: {'iceServers': [{ url: 'stun:stun.l.google.com:19302' }]} 
+        });
 
-    // --- 2. VOICE LOGIC ---
-    function joinRoom(roomName) {
-        if(currentRoom === roomName) return;
-        if(currentRoom) leaveRoom(); 
+        let myPeerId = null;
+        let myUsername = "Unknown";
+        let myStream = null;
+        let currentRoom = null;
+        let peers = {}; 
+        let audioCtx = null; 
+        let noiseEnabled = true; // Default state
 
-        if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+        // --- 1. SETUP ---
+        myPeer.on('open', id => {
+            myPeerId = id;
+            console.log("My Peer ID:", id);
+        });
 
-        navigator.mediaDevices.getUserMedia({ audio: true, video: false }).then(stream => {
-            myStream = stream;
-            currentRoom = roomName;
+        function enterApp() {
+            const name = document.getElementById('username-input').value;
+            if(!name) return;
+            myUsername = name;
+            document.getElementById('login-modal').style.display = 'none';
+            socket.emit('join-app', { username: name, peerId: myPeerId });
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        }
 
-            updateUI(true, roomName);
-            addAvatar(myPeerId, myUsername, true);
+        // --- 2. VOICE LOGIC ---
+        function joinRoom(roomName) {
+            if(currentRoom === roomName) return;
+            if(currentRoom) leaveRoom(); 
 
-            // Visualize MY Own Audio
-            setupVisualizer(stream, myPeerId);
+            if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
 
-            socket.emit('join-room', roomName);
+            // REQUEST HIGH QUALITY AUDIO CONSTRAINTS
+            const constraints = {
+                audio: {
+                    echoCancellation: true,
+                    noiseSuppression: true,
+                    autoGainControl: true
+                },
+                video: false
+            };
 
-            // Incoming Calls
-            myPeer.on('call', call => {
-                call.answer(stream);
-                const audio = document.createElement('audio');
-                peers[call.peer] = call;
+            navigator.mediaDevices.getUserMedia(constraints).then(stream => {
+                myStream = stream;
+                currentRoom = roomName;
+                
+                // Ensure UI matches default state
+                updateNoiseBtnUI();
 
-                call.on('stream', userAudioStream => {
-                    addAudioStream(audio, userAudioStream);
-                    // Visualize THEIR Audio
-                    setupVisualizer(userAudioStream, call.peer);
+                updateUI(true, roomName);
+                addAvatar(myPeerId, myUsername, true);
+
+                // Visualize MY Own Audio
+                setupVisualizer(stream, myPeerId);
+
+                socket.emit('join-room', roomName);
+
+                // Incoming Calls
+                myPeer.on('call', call => {
+                    call.answer(stream);
+                    const audio = document.createElement('audio');
+                    peers[call.peer] = call;
+
+                    call.on('stream', userAudioStream => {
+                        addAudioStream(audio, userAudioStream);
+                        setupVisualizer(userAudioStream, call.peer);
+                    });
+
+                    call.on('close', () => { audio.remove(); delete peers[call.peer]; });
                 });
 
-                call.on('close', () => { audio.remove(); delete peers[call.peer]; });
+            }).catch(err => {
+                console.error("Mic Error:", err);
+                alert("Microphone access denied.");
+            });
+        }
+
+        function connectToNewUser(peerId, username) {
+            const call = myPeer.call(peerId, myStream);
+            const audio = document.createElement('audio');
+            peers[peerId] = call;
+
+            call.on('stream', userAudioStream => {
+                addAudioStream(audio, userAudioStream);
+                setupVisualizer(userAudioStream, peerId);
             });
 
-        }).catch(err => {
-            console.error("Mic Error:", err);
-            alert("Microphone access denied.");
-        });
-    }
-
-    function connectToNewUser(peerId, username) {
-        const call = myPeer.call(peerId, myStream);
-        const audio = document.createElement('audio');
-        peers[peerId] = call;
-
-        call.on('stream', userAudioStream => {
-            addAudioStream(audio, userAudioStream);
-            // Visualize THEIR Audio
-            setupVisualizer(userAudioStream, peerId);
-        });
-
-        call.on('close', () => { audio.remove(); });
-    }
-
-    // --- 3. THE FIXED VISUALIZER ---
-    function setupVisualizer(stream, peerId) {
-        if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-
-        // Create a dedicated analyser for this user
-        const source = audioCtx.createMediaStreamSource(stream);
-        const analyser = audioCtx.createAnalyser();
-        analyser.fftSize = 256; 
-        source.connect(analyser);
-
-        // We use TimeDomainData (Waveform) which is better for volume detection
-        const data = new Uint8Array(analyser.frequencyBinCount);
-        
-        function analyze() {
-            // Stop loop if user left the room (element is gone) or we disconnected
-            const el = document.getElementById(`node-${peerId}`);
-            if(!currentRoom || !el) return; 
-
-            analyser.getByteTimeDomainData(data);
-            
-            // Calculate Volume (Deviation from 128, which is silence)
-            let sum = 0;
-            for(let i = 0; i < data.length; i++) {
-                sum += Math.abs(data[i] - 128); 
-            }
-            let volume = sum / data.length;
-
-            // NEW THRESHOLD: 5 
-            // (Waveform average is usually < 2 for silence, > 5 for speech)
-            if(volume > 5) { 
-                el.classList.add('speaking');
-            } else {
-                el.classList.remove('speaking');
-            }
-            
-            requestAnimationFrame(analyze);
-        }
-        analyze();
-    }
-
-    function addAudioStream(audio, stream) {
-        audio.srcObject = stream;
-        audio.autoplay = true;
-        audio.playsInline = true;
-        document.body.append(audio);
-    }
-
-    // --- 4. CLEANUP ---
-    function leaveRoom() {
-        if(!currentRoom) return;
-
-        if(myStream) {
-            myStream.getTracks().forEach(track => track.stop());
-            myStream = null;
+            call.on('close', () => { audio.remove(); });
         }
 
-        Object.values(peers).forEach(call => call.close());
-        peers = {};
+        // --- 3. VISUALIZER (Waveform Logic) ---
+        function setupVisualizer(stream, peerId) {
+            if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 
-        document.querySelectorAll('audio').forEach(el => el.remove());
-        socket.emit('leave-room');
-        
-        currentRoom = null;
-        document.getElementById('avatar-grid').innerHTML = '';
-        updateUI(false);
-    }
+            const source = audioCtx.createMediaStreamSource(stream);
+            const analyser = audioCtx.createAnalyser();
+            analyser.fftSize = 256; 
+            source.connect(analyser);
 
-    // --- 5. SOCKETS & UI ---
-    socket.on('user-connected', user => {
-        addAvatar(user.peerId, user.username, false);
-        setTimeout(() => connectToNewUser(user.peerId, user.username), 1000);
-    });
+            const data = new Uint8Array(analyser.frequencyBinCount);
+            
+            function analyze() {
+                const el = document.getElementById(`node-${peerId}`);
+                if(!currentRoom || !el) return; 
 
-    socket.on('user-disconnected', peerId => {
-        if(peers[peerId]) peers[peerId].close();
-        delete peers[peerId];
-        const el = document.getElementById(`node-${peerId}`);
-        if(el) el.remove();
-    });
+                analyser.getByteTimeDomainData(data);
+                
+                let sum = 0;
+                for(let i = 0; i < data.length; i++) {
+                    sum += Math.abs(data[i] - 128); 
+                }
+                let volume = sum / data.length;
 
-    socket.on('room-users', users => {
-        users.forEach(user => {
+                if(volume > 5) { 
+                    el.classList.add('speaking');
+                } else {
+                    el.classList.remove('speaking');
+                }
+                requestAnimationFrame(analyze);
+            }
+            analyze();
+        }
+
+        function addAudioStream(audio, stream) {
+            audio.srcObject = stream;
+            audio.autoplay = true;
+            audio.playsInline = true;
+            document.body.append(audio);
+        }
+
+        // --- 4. CLEANUP ---
+        function leaveRoom() {
+            if(!currentRoom) return;
+
+            if(myStream) {
+                myStream.getTracks().forEach(track => track.stop());
+                myStream = null;
+            }
+            Object.values(peers).forEach(call => call.close());
+            peers = {};
+            document.querySelectorAll('audio').forEach(el => el.remove());
+            socket.emit('leave-room');
+            currentRoom = null;
+            document.getElementById('avatar-grid').innerHTML = '';
+            updateUI(false);
+        }
+
+        // --- 5. SOCKETS & UI ---
+        socket.on('user-connected', user => {
             addAvatar(user.peerId, user.username, false);
-            connectToNewUser(user.peerId, user.username);
+            setTimeout(() => connectToNewUser(user.peerId, user.username), 1000);
         });
-    });
 
-    socket.on('new-chat', data => {
-        const box = document.getElementById('chat-box');
-        box.innerHTML += `<div class="msg"><b>${data.user}:</b> ${data.text}</div>`;
-        box.scrollTop = box.scrollHeight;
-    });
+        socket.on('user-disconnected', peerId => {
+            if(peers[peerId]) peers[peerId].close();
+            delete peers[peerId];
+            const el = document.getElementById(`node-${peerId}`);
+            if(el) el.remove();
+        });
 
-    function updateUI(active, roomName) {
-        const controls = document.getElementById('controls');
-        const status = document.getElementById('status-text');
-        const cards = document.querySelectorAll('.card');
-
-        if(active) {
-            controls.classList.add('visible');
-            status.innerText = "LINKED: " + roomName;
-            cards.forEach(c => {
-                if(c.innerText.includes(roomName)) c.classList.add('active');
-                else c.classList.remove('active');
+        socket.on('room-users', users => {
+            users.forEach(user => {
+                addAvatar(user.peerId, user.username, false);
+                connectToNewUser(user.peerId, user.username);
             });
-        } else {
-            controls.classList.remove('visible');
-            status.innerText = "SYSTEM IDLE";
-            cards.forEach(c => c.classList.remove('active'));
+        });
+
+        socket.on('new-chat', data => {
+            const box = document.getElementById('chat-box');
+            box.innerHTML += `<div class="msg"><b>${data.user}:</b> ${data.text}</div>`;
+            box.scrollTop = box.scrollHeight;
+        });
+
+        function updateUI(active, roomName) {
+            const controls = document.getElementById('controls');
+            const status = document.getElementById('status-text');
+            const cards = document.querySelectorAll('.card');
+
+            if(active) {
+                controls.classList.add('visible');
+                status.innerText = "LINKED: " + roomName;
+                cards.forEach(c => {
+                    if(c.innerText.includes(roomName)) c.classList.add('active');
+                    else c.classList.remove('active');
+                });
+            } else {
+                controls.classList.remove('visible');
+                status.innerText = "SYSTEM IDLE";
+                cards.forEach(c => c.classList.remove('active'));
+            }
         }
-    }
 
-    function addAvatar(peerId, name, isSelf) {
-        if(document.getElementById(`node-${peerId}`)) return;
-        const div = document.createElement('div');
-        div.className = 'user-node';
-        div.id = `node-${peerId}`;
-        div.innerHTML = `<img src="https://api.dicebear.com/7.x/identicon/svg?seed=${name}"><div class="username-tag">${name}</div>`;
-        document.getElementById('avatar-grid').appendChild(div);
-    }
-
-    function sendChat(e) {
-        if(e.key === 'Enter') {
-            socket.emit('chat-msg', e.target.value);
-            e.target.value = '';
+        function addAvatar(peerId, name, isSelf) {
+            if(document.getElementById(`node-${peerId}`)) return;
+            const div = document.createElement('div');
+            div.className = 'user-node';
+            div.id = `node-${peerId}`;
+            div.innerHTML = `<img src="https://api.dicebear.com/7.x/identicon/svg?seed=${name}"><div class="username-tag">${name}</div>`;
+            document.getElementById('avatar-grid').appendChild(div);
         }
-    }
 
-    function toggleMic() {
-        if(!myStream) return;
-        const track = myStream.getAudioTracks()[0];
-        track.enabled = !track.enabled;
-        document.getElementById('mic-btn').style.opacity = track.enabled ? '1' : '0.5';
-    }
-</script>
+        function sendChat(e) {
+            if(e.key === 'Enter') {
+                socket.emit('chat-msg', e.target.value);
+                e.target.value = '';
+            }
+        }
+
+        function toggleMic() {
+            if(!myStream) return;
+            const track = myStream.getAudioTracks()[0];
+            track.enabled = !track.enabled;
+            document.getElementById('mic-btn').style.opacity = track.enabled ? '1' : '0.5';
+        }
+
+        // --- NEW NOISE CANCELLING LOGIC ---
+        function toggleNoise() {
+            if(!myStream) return;
+            const track = myStream.getAudioTracks()[0];
+            
+            // Toggle state
+            noiseEnabled = !noiseEnabled;
+
+            // Apply new constraints to the running stream
+            track.applyConstraints({
+                echoCancellation: noiseEnabled,
+                noiseSuppression: noiseEnabled,
+                autoGainControl: noiseEnabled
+            }).then(() => {
+                console.log("Noise Cancellation:", noiseEnabled);
+                updateNoiseBtnUI();
+            }).catch(err => {
+                console.error("Error applying constraints:", err);
+            });
+        }
+
+        function updateNoiseBtnUI() {
+            const btn = document.getElementById('noise-btn');
+            if(noiseEnabled) {
+                btn.style.borderColor = "#00ff9d"; // Green (On)
+                btn.style.color = "#00ff9d";
+                btn.style.opacity = "1";
+            } else {
+                btn.style.borderColor = "#666"; // Grey (Off)
+                btn.style.color = "#666";
+                btn.style.opacity = "0.5";
+            }
+        }
+    </script>
 </body>
 </html>
