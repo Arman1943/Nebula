@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>Orbit | Debug Mode</title>
+    <title>Orbit | Auto-Detect</title>
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
     <script src="/socket.io/socket.io.js"></script>
     <style>
@@ -47,7 +47,7 @@
         .chat-input { flex: 1; padding: 10px; background: #000; border: 1px solid #333; color: white; border-radius: 8px; font-size: 16px; }
         .send-btn { background: var(--accent); border: none; color: #000; width: 40px; border-radius: 8px; font-weight: bold; }
 
-        /* AUDIO UNLOCK OVERLAY */
+        /* AUDIO UNLOCK OVERLAY (Only visible on Mobile) */
         #audio-unlock {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
             background: rgba(0,0,0,0.8); z-index: 50;
@@ -59,7 +59,7 @@
         }
         @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(0, 255, 157, 0.7); } 70% { box-shadow: 0 0 0 20px rgba(0, 255, 157, 0); } 100% { box-shadow: 0 0 0 0 rgba(0, 255, 157, 0); } }
 
-        /* DEBUG CONSOLE (Tiny text at bottom) */
+        /* DEBUG CONSOLE */
         #debug-log {
             position: fixed; bottom: 0; left: 0; width: 100%; height: 30px;
             background: rgba(0,0,0,0.8); color: lime; font-family: monospace;
@@ -93,7 +93,7 @@
 
     <div id="audio-unlock">
         <button class="unlock-btn" onclick="unlockAudioEngine()">TAP TO JOIN VOICE</button>
-        <div style="color:white; margin-top:10px; font-size:0.8rem;">Required for audio transmission</div>
+        <div style="color:white; margin-top:10px; font-size:0.8rem;">Required for mobile transmission</div>
     </div>
 
     <div id="debug-log">System Ready...</div>
@@ -128,42 +128,30 @@
     </div>
 
     <script>
-        // --- LOGGING UTILITY ---
         function log(msg) {
             console.log(msg);
             const el = document.getElementById('debug-log');
-            el.innerText = msg; // Show last message
+            el.innerText = msg;
             el.style.color = msg.includes("Error") ? "red" : "lime";
         }
 
+        // --- DEVICE DETECTION ---
+        function isMobile() {
+            return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+        }
+
         const socket = io();
-        
-        // ROBUST PEER CONFIG
         const myPeer = new Peer(undefined, { 
-            debug: 2, // Print errors to console
-            config: {
-                'iceServers': [
-                    { url: 'stun:stun.l.google.com:19302' },
-                    { url: 'stun:stun1.l.google.com:19302' },
-                    { url: 'stun:stun2.l.google.com:19302' }
-                ]
-            } 
+            debug: 2, 
+            config: { 'iceServers': [ { url: 'stun:stun.l.google.com:19302' }, { url: 'stun:stun1.l.google.com:19302' } ] } 
         });
 
         let myPeerId = null, myUsername = "Unknown", myStream = null, currentRoom = null;
         let peers = {}, audioCtx = null, noiseEnabled = true;
-        let pendingRoom = null; // Store room while waiting for user tap
+        let pendingRoom = null;
 
-        // --- 1. INITIALIZATION ---
-
-        myPeer.on('open', id => {
-            myPeerId = id;
-            log("PeerID Generated: " + id);
-        });
-
-        myPeer.on('error', err => {
-            log("Peer Error: " + err.type);
-        });
+        myPeer.on('open', id => { myPeerId = id; log("PeerID: " + id); });
+        myPeer.on('error', err => log("Peer Error: " + err.type));
 
         function enterApp() {
             const name = document.getElementById('username-input').value;
@@ -171,42 +159,40 @@
             myUsername = name;
             document.getElementById('login-modal').style.display = 'none';
             socket.emit('join-app', { username: name, peerId: myPeerId });
-            log("Connected to Server.");
+            log("Connected. Mobile Detected: " + isMobile());
         }
 
-        // --- 2. JOIN LOGIC (The Fix) ---
-
-        // Step A: User clicks card -> Show "Tap to Unlock" overlay
+        // --- SMART JOIN LOGIC ---
         function prepareJoin(roomName) {
             if(currentRoom === roomName) return;
             pendingRoom = roomName;
             
-            // Show overlay to force user interaction
-            const unlocker = document.getElementById('audio-unlock');
-            unlocker.style.display = 'flex';
+            // IF MOBILE: Show overlay
+            if (isMobile()) {
+                document.getElementById('audio-unlock').style.display = 'flex';
+            } 
+            // IF PC: Join immediately
+            else {
+                joinRoomActual(roomName);
+            }
         }
 
-        // Step B: User taps overlay -> Initialize Audio -> Join
         function unlockAudioEngine() {
             document.getElementById('audio-unlock').style.display = 'none';
-            
-            // 1. Create/Resume Audio Context (MUST happen in click)
+            // Force audio context unlock on mobile touch
             if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
             if (audioCtx.state === 'suspended') audioCtx.resume();
-            
-            log("Audio Engine Unlocked. Connecting...");
             joinRoomActual(pendingRoom);
         }
 
         function joinRoomActual(roomName) {
             if(currentRoom) leaveRoom();
 
+            // Init Audio Context for Visualizer if not exists
+            if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
             const constraints = { 
-                audio: { 
-                    echoCancellation: true, 
-                    noiseSuppression: true, 
-                    autoGainControl: true 
-                }, 
+                audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }, 
                 video: false 
             };
 
@@ -221,7 +207,6 @@
                 socket.emit('join-room', roomName);
                 log("Mic Active. Joined " + roomName);
 
-                // ANSWER CALLS
                 myPeer.on('call', call => {
                     log("Incoming call...");
                     call.answer(stream);
@@ -230,15 +215,12 @@
 
             }).catch(e => {
                 log("Mic Access Denied: " + e.message);
-                alert("You must allow Microphone access!");
+                alert("Please allow Microphone access!");
             });
         }
 
-        // --- 3. CONNECTION HANDLERS ---
-
         function connectToNewUser(peerId) {
             log("Calling " + peerId);
-            // Delay slightly to ensure they are ready
             setTimeout(() => {
                 const call = myPeer.call(peerId, myStream);
                 handleCall(call);
@@ -250,11 +232,10 @@
             peers[call.peer] = call;
             
             call.on('stream', userStream => {
-                log("Received Audio Stream");
+                log("Received Audio");
                 addAudio(audio, userStream);
                 setupVisualizer(userStream, call.peer);
             });
-            
             call.on('error', e => log("Call Error: " + e));
             call.on('close', () => { audio.remove(); delete peers[call.peer]; });
         }
@@ -264,16 +245,8 @@
             audio.autoplay = true;
             audio.playsInline = true;
             document.body.append(audio);
-            
-            // Explicitly try to play
-            audio.play().then(() => {
-                log("Audio playing");
-            }).catch(e => {
-                log("Autoplay blocked: " + e.message);
-            });
+            audio.play().catch(e => log("Autoplay blocked: " + e.message));
         }
-
-        // --- 4. VISUALIZER ---
 
         function setupVisualizer(stream, peerId) {
             if (!audioCtx) return;
@@ -298,8 +271,6 @@
             loop();
         }
 
-        // --- 5. CLEANUP & UTILS ---
-
         function leaveRoom() {
             if(!currentRoom) return;
             if(myStream) { myStream.getTracks().forEach(t => t.stop()); myStream = null; }
@@ -319,35 +290,29 @@
                 input.value = '';
             }
         }
-        
         document.getElementById('msg-input').addEventListener('keypress', function (e) {
             if (e.key === 'Enter') manualSend();
         });
 
-        // SOCKET EVENTS
         socket.on('user-connected', user => {
             log(user.username + " joined.");
             addAvatar(user.peerId, user.username, false);
             connectToNewUser(user.peerId);
         });
-        
         socket.on('user-disconnected', id => {
             if(peers[id]) peers[id].close(); delete peers[id];
             const el = document.getElementById(`node-${id}`); if(el) el.remove();
         });
-        
         socket.on('room-users', users => users.forEach(u => {
             addAvatar(u.peerId, u.username, false);
             connectToNewUser(u.peerId);
         }));
-        
         socket.on('new-chat', data => {
             const box = document.getElementById('chat-box');
             box.innerHTML += `<div class="msg"><b>${data.user}:</b> ${data.text}</div>`;
             box.scrollTop = box.scrollHeight;
         });
 
-        // UI HELPERS
         function updateUI(active, room) {
             const ctrls = document.getElementById('controls');
             const stat = document.getElementById('status-text');
